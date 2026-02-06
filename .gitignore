@@ -1,0 +1,13 @@
+# Optional: ignore generated MIDI if you want to regenerate only
+# *.mid
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+env/
+
+# OS
+.DS_Store
+Thumbs.db
