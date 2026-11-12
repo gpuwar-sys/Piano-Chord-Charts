@@ -271,7 +271,8 @@ function renderSongs() {
   libraryEl.querySelectorAll(".song").forEach((button) => {
     const on = button.dataset.id === state.songId;
     button.classList.toggle("is-current", on);
-    button.setAttribute("aria-current", on ? "true" : "false");
+    if (on) button.setAttribute("aria-current", "true");
+    else button.removeAttribute("aria-current");
   });
 }
 
