@@ -12,6 +12,11 @@ python3 -m http.server 8765
 ```
 then go to http://127.0.0.1:8765/
 
+## Public web version (GitHub Pages)
+The workflow in `.github/workflows/pages.yml` publishes this folder on every push to the `v2` branch.
+One-time setup: GitHub repo → Settings → Pages → Source: **GitHub Actions**.
+The app is then at https://gpuwar-sys.github.io/Piano-Chord-Charts/
+
 ## What's new vs. V1
 - V1 only looped four chords with a plain sine tone, so songs never sounded like the real thing.
   V2 plays the **melody note by note** plus a left-hand/right-hand chord accompaniment, on a piano-style synth.
