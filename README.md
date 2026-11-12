@@ -12,8 +12,9 @@ Personal use – chord charts and simple tools for learning songs on keyboard.
 
 ## Quick start
 
-1. **Hear chords in browser:** Open `Play_Chords.html`.
-2. **Generate MIDI files:**  
+1. **Practice in the browser:** Open `www/index.html` (or `Play_Chords.html`). The layout fits a phone and a wide window. Play, step through chords, and change the tempo.
+2. **Android:** Sideload `ChordCharts-debug.apk`. It is the same player.
+3. **Generate MIDI files:**  
    `pip install -r requirements_chords.txt`  
    `python play_chords_midi.py`  
    Then open the created `.mid` files in any media player.

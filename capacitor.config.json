@@ -1,0 +1,9 @@
+{
+  "appId": "com.chordcharts.practice",
+  "appName": "Chord Charts",
+  "webDir": "www",
+  "backgroundColor": "#e7e1d4",
+  "android": {
+    "backgroundColor": "#e7e1d4"
+  }
+}

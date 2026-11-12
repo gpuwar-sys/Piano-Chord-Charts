@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#e7e1d4">
+  <meta name="description" content="Practice the chord progressions from your charts. Same player on the web and on Android.">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="Chord Charts">
+  <title>Chord Charts</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app">
+    <header class="top">
+      <div class="brand">
+        <span class="mark" aria-hidden="true">♪</span>
+        <div>
+          <p class="eyebrow">Practice player</p>
+          <h1 class="title">Chord Charts</h1>
+        </div>
+      </div>
+      <p class="intro" id="intro">Frozen</p>
+    </header>
+
+    <div class="layout">
+      <nav class="library" id="library" aria-label="Songs"></nav>
+
+      <main class="stage-wrap">
+        <section class="stage" aria-labelledby="symbol">
+          <p class="eyebrow" id="state-label">Ready</p>
+          <div class="chord-line">
+            <p class="symbol" id="symbol" aria-hidden="true">Am</p>
+            <p class="quality" id="quality">A minor</p>
+          </div>
+          <p class="sr" id="live" aria-live="polite"></p>
+
+          <div class="hands">
+            <div class="hand">
+              <span>Left hand</span>
+              <strong id="bass">A</strong>
+            </div>
+            <div class="hand">
+              <span>Right hand</span>
+              <strong id="right">C · E · G</strong>
+              <em id="sargam">Sa · Ga · Pa</em>
+            </div>
+          </div>
+
+          <div class="piano" id="piano" aria-hidden="true"></div>
+
+          <div class="beats" id="beats" aria-hidden="true">
+            <span class="beat"></span>
+            <span class="beat"></span>
+            <span class="beat"></span>
+            <span class="beat"></span>
+          </div>
+
+          <div class="progression" id="progression" role="group" aria-label="Progression"></div>
+          <p class="sa-note">Sargam with Sa = C. Keys show the right hand.</p>
+        </section>
+
+        <section class="transport" aria-label="Playback">
+          <div class="transport-row">
+            <button type="button" class="step" id="prev" aria-label="Previous chord">
+              <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M6 5h2v14H6zm3.5 7 8.5 6V6z"/></svg>
+            </button>
+            <button type="button" class="play" id="play" aria-label="Play" aria-pressed="false">
+              <svg id="icon-play" viewBox="0 0 24 24" width="28" height="28" aria-hidden="true"><path fill="currentColor" d="M8 5v14l11-7z"/></svg>
+              <svg id="icon-pause" hidden viewBox="0 0 24 24" width="28" height="28" aria-hidden="true"><path fill="currentColor" d="M6 5h4v14H6zm8 0h4v14h-4z"/></svg>
+            </button>
+            <button type="button" class="step" id="next" aria-label="Next chord">
+              <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M16 5h2v14h-2zM6 19l8.5-7L6 5z"/></svg>
+            </button>
+            <button type="button" class="loop is-on" id="loop" aria-pressed="true">Loop</button>
+          </div>
+          <label class="tempo">
+            <span id="bpm-label">72 BPM</span>
+            <input id="tempo" type="range" min="48" max="140" step="1" value="72" aria-valuemin="48" aria-valuemax="140">
+          </label>
+        </section>
+      </main>
+    </div>
+  </div>
+  <script src="app.js"></script>
+</body>
+</html>

@@ -11,3 +11,13 @@ env/
 # OS
 .DS_Store
 Thumbs.db
+
+# Web app packaging
+node_modules/
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/captures/
+.idea/
+*.apk

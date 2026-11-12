@@ -1,0 +1,17 @@
+{
+  "name": "chord-charts",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Practice player for chord charts, on the web and as an Android app.",
+  "scripts": {
+    "sync": "cap sync android",
+    "apk": "cap sync android && cd android && gradlew.bat assembleDebug"
+  },
+  "dependencies": {
+    "@capacitor/android": "^7.4.4",
+    "@capacitor/core": "^7.4.4"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^7.4.4"
+  }
+}
