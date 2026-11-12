@@ -1,1 +1,6 @@
-midiutil>=1.2.0
+   git remote add origin https://github.com/gpuwar-sys/Piano-Chord-Charts.git
+   git branch -M main
+   git push -u origin main
+   git branch -M main
+   git push -u origin mainmidiutil>=1.2.0
+

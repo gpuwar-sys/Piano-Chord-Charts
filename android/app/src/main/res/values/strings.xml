@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Chord Charts</string>
+    <string name="title_activity_main">Chord Charts</string>
+    <string name="package_name">com.chordcharts.practice</string>
+    <string name="custom_url_scheme">com.chordcharts.practice</string>
+</resources>
