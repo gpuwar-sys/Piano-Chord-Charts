@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Chord Charts V3 — Sa Re Ga + C D E</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;600;700;800&family=Nunito:wght@400;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app">
+    <header class="top">
+      <div class="brand">
+        <span class="logo" aria-hidden="true">♫</span>
+        <div>
+          <h1>Chord Charts</h1>
+          <p class="tag">Sa Re Ga <span aria-hidden="true">·</span> C D E <span aria-hidden="true">·</span> play along</p>
+        </div>
+      </div>
+      <div class="head-btns">
+        <button type="button" class="btn primary" id="open-import">⬆ Import MIDI file</button>
+        <button type="button" class="btn ghost" id="open-editor">＋ Type a song</button>
+      </div>
+    </header>
+
+    <!-- STEP 1: find a song -->
+    <section class="find" aria-labelledby="find-h">
+      <h2 id="find-h"><span class="step">1</span> Pick a song</h2>
+      <div class="search">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M10 4a6 6 0 1 0 3.5 10.9l4.3 4.3 1.4-1.4-4.3-4.3A6 6 0 0 0 10 4zm0 2a4 4 0 1 1 0 8 4 4 0 0 1 0-8z"/></svg>
+        <input id="search" type="search" placeholder="Type a song name… (try “star” or “birthday”)" autocomplete="off" aria-label="Song name">
+      </div>
+      <div class="cards" id="cards" role="list"></div>
+      <div class="sync" id="sync">
+        <span id="sync-status">Connecting sync…</span>
+        <button type="button" class="btn small primary" id="sync-btn" hidden>☁️ Sign in with Google</button>
+      </div>
+      <div class="backup">
+        <span class="muted">Your added songs live in this browser only. To move them to another phone or computer:</span>
+        <button type="button" class="btn small ghost" id="backup-save">💾 Save my songs to a file</button>
+        <label class="btn small ghost">📂 Load songs from a file
+          <input type="file" id="backup-load" accept=".json,application/json" hidden>
+        </label>
+      </div>
+      <div class="notfound" id="notfound" hidden>
+        <p><strong id="nf-title"></strong> isn’t in the song list yet.</p>
+        <p class="muted">Have a MIDI file of it? Import it and the app will find the tune, work out the chords, and make the chart in Sa Re Ga and C D E.</p>
+        <button type="button" class="btn primary" id="nf-import">⬆ Import a MIDI file</button>
+        <button type="button" class="btn ghost" id="nf-add">Type the notes myself</button>
+      </div>
+    </section>
+
+    <!-- STEP 2 + 3: the chart and player -->
+    <section class="player" id="player" aria-labelledby="song-title">
+      <div class="song-head">
+        <div>
+          <h2 id="song-title">Song</h2>
+          <p class="by" id="song-by"></p>
+        </div>
+        <div class="head-actions">
+          <button type="button" class="btn small ghost" id="edit-copy">✎ Edit a copy</button>
+          <button type="button" class="btn small ghost" id="midi">⬇ MIDI file</button>
+        </div>
+      </div>
+
+      <div class="controls">
+        <div class="ctl">
+          <span class="ctl-label"><span class="step">2</span> Read notes as</span>
+          <div class="seg" role="group" aria-label="Notation" id="notation">
+            <button type="button" data-v="indian">Indian<small>Sa Re Ga</small></button>
+            <button type="button" data-v="american">American<small>C D E</small></button>
+            <button type="button" data-v="both">Both</button>
+          </div>
+          <label class="check"><input type="checkbox" id="devanagari"> Hindi letters (सा रे ग)</label>
+        </div>
+
+        <div class="ctl">
+          <span class="ctl-label">Sa is on key</span>
+          <select id="key" aria-label="Key (where Sa sits)"></select>
+          <span class="hint" id="key-hint">Change this to play higher or lower</span>
+        </div>
+
+        <div class="ctl tempo-ctl">
+          <span class="ctl-label">Speed</span>
+          <input type="range" id="tempo" min="40" max="180" step="1" aria-label="Speed in beats per minute">
+          <span class="bpm" id="bpm">96 BPM</span>
+          <button type="button" class="btn tiny ghost" id="tempo-reset" title="Back to the song's speed">Reset</button>
+        </div>
+
+        <div class="ctl">
+          <span class="ctl-label">Hear</span>
+          <div class="toggles">
+            <button type="button" class="tog" id="t-melody" aria-pressed="true">🎵 Tune</button>
+            <button type="button" class="tog" id="t-chords" aria-pressed="true">🎹 Chords</button>
+            <button type="button" class="tog" id="t-click" aria-pressed="false">🥁 Beat</button>
+            <button type="button" class="tog" id="t-countin" aria-pressed="true">1-2-3 Count in</button>
+            <button type="button" class="tog" id="t-loop" aria-pressed="false">🔁 Repeat</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="transport">
+        <span class="step big-step">3</span>
+        <button type="button" class="play" id="play" aria-label="Play">
+          <svg id="i-play" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M8 5v14l11-7z"/></svg>
+          <svg id="i-stop" viewBox="0 0 24 24" aria-hidden="true" hidden><path fill="currentColor" d="M6 6h12v12H6z"/></svg>
+          <span id="play-label">Play</span>
+        </button>
+        <button type="button" class="btn ghost" id="restart">⏮ Start over</button>
+        <p class="status" id="status" aria-live="polite">Tip: tap any note to hear it. Tap a chord to hear the chord.</p>
+      </div>
+
+      <div class="chords-used">
+        <h3>Chords in this song</h3>
+        <div class="chord-list" id="chord-list"></div>
+      </div>
+
+      <div class="chart" id="chart" aria-label="Chord chart"></div>
+      <p class="legend" id="legend"></p>
+    </section>
+
+    <div class="keyboard-wrap" aria-hidden="true">
+      <div class="kb-legend"><span class="sw mel"></span> tune note <span class="sw chd"></span> chord notes</div>
+      <div class="keyboard" id="keyboard"></div>
+    </div>
+
+    <footer class="foot">
+      <p>Songs in the list are traditional or public-domain, so the full tune and words can be shown. Songs you add are saved only in this browser.</p>
+    </footer>
+  </div>
+
+  <!-- Song editor -->
+  <div class="modal" id="editor" hidden role="dialog" aria-modal="true" aria-labelledby="ed-h">
+    <div class="sheet">
+      <div class="sheet-head">
+        <h2 id="ed-h">Add a song</h2>
+        <button type="button" class="btn small ghost" id="ed-close" aria-label="Close">✕</button>
+      </div>
+      <div class="ed-grid">
+        <div class="ed-left">
+          <div class="import-box">
+            <div class="import-row">
+              <label class="btn primary file-btn">⬆ Choose a MIDI file (.mid)
+                <input type="file" id="midi-file" accept=".mid,.midi,.kar,audio/midi,audio/x-midi" hidden>
+              </label>
+              <span class="muted" id="midi-name">The app reads the file on your computer — nothing is uploaded anywhere.</span>
+            </div>
+            <div class="import-row" id="import-opts" hidden>
+              <label>Tune is in <select id="midi-track"></select></label>
+              <label>Change chords <select id="midi-chords"><option value="bar">once per bar (easier)</option><option value="half">twice per bar</option></select></label>
+              <label>Bars per line <select id="midi-bars"><option>1</option><option selected>2</option><option>4</option></select></label>
+            </div>
+            <p class="import-info" id="import-info" hidden></p>
+          </div>
+          <label class="ed-label" for="ed-text">Song text (you can fix notes or add words here)</label>
+          <textarea id="ed-text" spellcheck="false" rows="16"></textarea>
+          <div class="ed-actions">
+            <button type="button" class="btn primary" id="ed-save">Save &amp; open</button>
+            <button type="button" class="btn ghost" id="ed-to-indian">Rewrite in Sa Re Ga</button>
+            <button type="button" class="btn ghost" id="ed-to-american">Rewrite in C D E</button>
+            <button type="button" class="btn ghost" id="ed-copy">Copy text</button>
+            <button type="button" class="btn ghost danger" id="ed-delete" hidden>Delete song</button>
+          </div>
+          <ul class="warnings" id="ed-warn"></ul>
+        </div>
+        <div class="ed-right">
+          <div class="help">
+            <h3>How to write a song</h3>
+            <ol>
+              <li>Start with <code>Title:</code>, <code>Key:</code> (where Sa is), <code>Tempo:</code> and <code>Time:</code> (4/4, 3/4 or 6/8).</li>
+              <li>Write a line of <b>notes</b>. Under it, write the <b>words</b>. Leave a blank line before the next phrase.</li>
+              <li>Notes: <code>Sa Re Ga Ma Pa Dha Ni</code> or <code>C D E F G A B</code>.<br>
+                Flat (komal): <code>re ga dha ni</code> or <code>Db Eb Ab Bb</code>. Tivra Ma: <code>ma</code> or <code>F#</code>.</li>
+              <li>Higher octave: <code>Sa'</code> / <code>C'</code>. Lower: <code>,Pa</code> or <code>Pa,</code> / <code>G,</code></li>
+              <li>Long or short: <code>Sa</code>=1 beat, <code>Sa-</code>=2, <code>Sa--</code>=3, <code>Sa_</code>=½, <code>Sa.</code>=1½, <code>Sa*5</code>=5. Rest: <code>~</code></li>
+              <li>Chords in brackets, right before the note they start on: <code>[C]</code> <code>[Am]</code> <code>[G7]</code> or <code>[Pa]</code> <code>[Dham]</code>.</li>
+              <li>Words: split syllables with a hyphen, like <code>Twin-kle</code>. Use <code>_</code> to stretch a word over one more note.</li>
+              <li><code>|</code> is a bar line (optional).</li>
+            </ol>
+          </div>
+          <h3 class="pv-h">Preview</h3>
+          <div class="chart mini" id="ed-preview"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast" role="status" hidden></div>
+
+  <script src="firebase-config.js"></script>
+  <script src="sync.js"></script>
+  <script src="music.js"></script>
+  <script src="songs.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

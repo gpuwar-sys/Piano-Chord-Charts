@@ -1,9 +1,9 @@
-# Publishes the V2 web app (the v2/ folder) to GitHub Pages on every push to the v2 branch.
+# Publishes the V3 web app (the v3/ folder) to GitHub Pages on every push to the v3 branch.
 # One-time setup: repo Settings → Pages → Source: "GitHub Actions".
-name: Deploy V2 web app to GitHub Pages
+name: Deploy V3 web app to GitHub Pages
 on:
   push:
-    branches: [v2]
+    branches: [v3]
   workflow_dispatch:
 permissions:
   contents: read
@@ -23,6 +23,6 @@ jobs:
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: v2
+          path: v3
       - id: deployment
         uses: actions/deploy-pages@v4
