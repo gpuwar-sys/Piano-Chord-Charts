@@ -72,6 +72,8 @@
     const n = M.sargamOf(midi, state.keyPc).name;
     return state.devanagari ? DEVA[cap(n)] + (n === "ma" ? "॑" : "") : n;
   }
+  // The three (or four) chord keys a beginner presses, low to high
+  function handNotes(v) { return (v.notes.length && v.bass < v.notes[0] - 11 ? v.notes : [v.bass].concat(v.notes)); }
   function chordTones(chord) {
     const v = M.voiceChord(chord, state.keyPc);
     return v;
@@ -176,8 +178,9 @@
       const v = chordTones(c);
       const am = M.chordWestern(c, state.keyPc);
       const ind = chordIndian(c);
-      const handsAm = `L: ${M.westernName(v.bass, state.keyPc)} · R: ${v.notes.map((n) => M.westernName(n, state.keyPc)).join(" ")}`;
-      const handsIn = `L: ${swaraLabel(v.bass)} · R: ${v.notes.map(swaraLabel).join(" ")}`;
+      const lh = handNotes(v);
+      const handsAm = `Left hand: ${lh.map((n) => M.westernName(n, state.keyPc)).join(" ")}`;
+      const handsIn = `Left hand: ${lh.map(swaraLabel).join(" ")}`;
       return `<button type="button" class="chip" data-chord="${i}">
         <div class="cn">${state.notation === "indian" ? esc(ind) : am}</div>
         ${state.notation === "both" ? `<div class="ci">${esc(ind)}</div>` : ""}
@@ -266,7 +269,27 @@
     wave = ctx.createPeriodicWave(real, imag);
   }
   const hz = (m) => 440 * Math.pow(2, (m - 69) / 12);
-  function pianoNote(midi, when, dur, vel) {
+  // Each playback run gets its own output "bus" so stopping silences ONLY that run's queued notes.
+  let bus = null;
+  function newBus() {
+    const b = ctx.createGain();
+    b.gain.value = 1;
+    b.connect(master);
+    b.connect(wet);
+    b.oscs = [];
+    return b;
+  }
+  function killBus(b) {
+    if (!b) return;
+    const now = ctx.currentTime;
+    b.gain.cancelScheduledValues(now);
+    b.gain.setValueAtTime(b.gain.value, now);
+    b.gain.linearRampToValueAtTime(0, now + 0.03);
+    b.oscs.forEach((o) => { try { o.stop(now + 0.05); } catch (e) { /* already stopped */ } });
+    b.oscs = [];
+    setTimeout(() => { try { b.disconnect(); } catch (e) { /* ignore */ } }, 200);
+  }
+  function pianoNote(midi, when, dur, vel, out) {
     const f = hz(midi);
     const g = ctx.createGain();
     const filt = ctx.createBiquadFilter();
@@ -288,18 +311,21 @@
     const o2 = ctx.createOscillator(); o2.setPeriodicWave(wave); o2.frequency.value = f; o2.detune.value = 4;
     const g2 = ctx.createGain(); g2.gain.value = 0.5;
     o1.connect(filt); o2.connect(g2); g2.connect(filt);
-    filt.connect(g); g.connect(master); g.connect(wet);
+    filt.connect(g);
+    if (out) { g.connect(out); out.oscs.push(o1, o2); }
+    else { g.connect(master); g.connect(wet); }
     o1.start(when); o2.start(when);
     o1.stop(end + 0.5); o2.stop(end + 0.5);
   }
-  function clickSound(when, accent) {
+  function clickSound(when, accent, out) {
     const o = ctx.createOscillator();
     const g = ctx.createGain();
     o.frequency.value = accent ? 1500 : 1000;
     g.gain.setValueAtTime(0.0001, when);
     g.gain.exponentialRampToValueAtTime(accent ? 0.35 : 0.2, when + 0.002);
     g.gain.exponentialRampToValueAtTime(0.0001, when + 0.05);
-    o.connect(g); g.connect(master);
+    o.connect(g); g.connect(out || master);
+    if (out) out.oscs.push(o);
     o.start(when); o.stop(when + 0.06);
   }
 
@@ -330,6 +356,10 @@
 
   function play(fromBeat) {
     ensureAudio();
+    if (state.playing) stop(true);
+    clearInterval(schedTimer);
+    cancelAnimationFrame(raf);
+    bus = newBus();
     const song = state.current.parsed;
     if (!song.totalBeats) { toast("This song has no notes yet."); return; }
     playFrom = Math.min(fromBeat || 0, song.totalBeats - 0.01);
@@ -337,7 +367,7 @@
     evIdx = 0;
     countBeats = state.countIn ? Math.round(song.beatsPerBar) : 0;
     t0 = ctx.currentTime + 0.12 + countBeats * spb();
-    for (let i = 0; i < countBeats; i++) clickSound(ctx.currentTime + 0.12 + i * spb(), i === 0);
+    for (let i = 0; i < countBeats; i++) clickSound(ctx.currentTime + 0.12 + i * spb(), i === 0, bus);
     state.playing = true;
     setPlayUI(true);
     if (countBeats) $("status").textContent = "Get ready… " + Array.from({ length: countBeats }, (_, i) => i + 1).join(" ");
@@ -351,8 +381,8 @@
       const e = events[evIdx];
       const when = t0 + (e.beat - playFrom) * spb();
       if (when > horizon) break;
-      if (e.type === "click") clickSound(when, e.accent);
-      else pianoNote(e.midi, Math.max(when, ctx.currentTime), e.dur * spb() * (e.type === "mel" ? 0.95 : 0.98), e.vel);
+      if (e.type === "click") clickSound(when, e.accent, bus);
+      else pianoNote(e.midi, Math.max(when, ctx.currentTime), e.dur * spb() * (e.type === "mel" ? 0.95 : 0.98), e.vel, bus);
       evIdx++;
     }
   }
@@ -395,7 +425,8 @@
     state.playing = false;
     clearInterval(schedTimer);
     cancelAnimationFrame(raf);
-    if (ctx) { master.gain.setTargetAtTime(0, ctx.currentTime, 0.03); setTimeout(() => { master.gain.setTargetAtTime(0.8, ctx.currentTime, 0.01); }, 150); }
+    killBus(bus);
+    bus = null;
     if (lastCell) lastCell.classList.remove("active");
     lastCell = null;
     lightKeys(null, []);
@@ -622,7 +653,8 @@ and here is line num-ber two
       lightKeys(null, [v.bass, ...v.notes]);
       document.querySelectorAll(".chip.on").forEach((x) => x.classList.remove("on"));
       b.classList.add("on");
-      $("status").textContent = `${M.chordWords(c, state.keyPc)} (${chordIndian(c)}) — left hand ${M.westernName(v.bass, state.keyPc)}, right hand ${v.notes.map((n) => M.westernName(n, state.keyPc)).join(" ")}`;
+      const lh = handNotes(v);
+      $("status").textContent = `${M.chordWords(c, state.keyPc)} (${chordIndian(c)}) — press ${lh.map((n) => M.westernName(n, state.keyPc)).join(" + ")} with your left hand (${lh.map(swaraLabel).join(" + ")}). Your right hand plays the tune.`;
     });
     $("midi").addEventListener("click", downloadMidi);
     $("edit-copy").addEventListener("click", () => {

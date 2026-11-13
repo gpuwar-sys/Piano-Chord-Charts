@@ -97,15 +97,18 @@
     return westernName(chord.pc + keyPc, keyPc) + " " + QUALITIES[chord.quality].word;
   }
 
-  // Voicing in the song's written key (Sa = C); add keyPc to transpose.
+  // Voicing: chord in the left-hand zone (G2..F#3 up to about C4), root position or nearest inversion,
+  // with a low bass note an octave under the root. Add keyPc to transpose.
   function voiceChord(chord, keyPc) {
-    const pcs = QUALITIES[chord.quality].tones.map((i) => mod12(chord.pc + i + keyPc));
-    // Right-hand-ish chord between F3 (53) and E4 (64)
-    const notes = pcs.map((pc) => { let n = 53 + mod12(pc - 53); return n; }).sort((a, b) => a - b);
-    // Bass: root between C2 (36) and B2 (47) ... nudged up to E2-D#3 for warmth
+    const tones = QUALITIES[chord.quality].tones;
     const rootPc = mod12(chord.pc + keyPc);
-    const bass = 40 + mod12(rootPc - 40);
-    return { bass, notes };
+    // put the root between F2 (41)... and E3 (52) so the chord sits around C3-C4
+    let root = 48 + mod12(rootPc - 48);
+    if (root > 55) root -= 12;          // keep it low: roots G#3+ drop an octave
+    const notes = tones.map((i) => root + i);
+    // low bass under the root, unless that would be too deep (then the chord's own root is the bass)
+    const bass = root - 12 >= 38 ? root - 12 : root;
+    return { bass, notes: bass === root ? notes.slice(1) : notes };
   }
 
   // ---------- Note tokens ----------
@@ -194,10 +197,12 @@
     for (const word of line.trim().split(/\s+/)) {
       if (!word) continue;
       if (word === "_") { out.push(""); continue; }
-      const parts = word.split("-");
-      parts.forEach((p, i) => out.push(i < parts.length - 1 ? p + "-" : p));
+      const parts = word.split("-").filter((p, i, arr) => p !== "" || (i === 0 && arr.length === 1));
+      if (!parts.length) continue; // a lone "-"
+      const endsJoined = /-$/.test(word);
+      parts.forEach((p, i) => out.push(i < parts.length - 1 || endsJoined ? p + "-" : p));
     }
-    return out.filter((s, i, arr) => s !== "-" || arr.length === 1);
+    return out;
   }
 
   // ---------- Song text ----------
@@ -417,22 +422,23 @@
   function accompaniment(song, keyPc) {
     const out = [];
     const bar = song.beatsPerBar || 4;
+    const mel = melodyNotes(song).map((n) => ({ midi: 60 + n.semi + keyPc, start: n.start, end: n.start + n.beats }));
+    // a key the tune is already holding down at that moment is not pressed again by the chord
+    const tuneHas = (midi, t) => mel.some((n) => n.midi === midi && n.start <= t + 1e-6 && n.end > t + 1e-6);
     song.chords.forEach((c) => {
       const v = voiceChord(c.chord, keyPc);
-      // split chord span into bar-aligned pieces
       let t = c.start;
       while (t < c.end - 1e-6) {
         const nextBar = (Math.floor(t / bar + 1e-6) + 1) * bar;
         const segEnd = Math.min(c.end, nextBar);
         const len = segEnd - t;
-        out.push({ midi: v.bass, start: t, beats: len, vel: 78 });
-        v.notes.forEach((n) => out.push({ midi: n, start: t, beats: len, vel: 58 }));
+        out.push({ midi: v.bass, start: t, beats: len, vel: 72 });
+        v.notes.forEach((n) => { if (!tuneHas(n, t)) out.push({ midi: n, start: t, beats: len, vel: 56 }); });
         t = segEnd;
       }
     });
     return out;
   }
-
 
   // Melody as sounding notes: tied items ("+Pa") extend the previous note instead of re-striking it.
   function melodyNotes(song) {
@@ -515,6 +521,22 @@
       tr.notes.sort((a, b) => a.start - b.start || b.midi - a.midi);
       out.tracks.push(tr);
     }
+    // Karaoke files often store every word twice (two lyric streams) plus blank events: keep one copy.
+    {
+      const useType = out.lyrics.some((l) => l.type === 0x05) ? 0x05 : 0x01;
+      const seen = new Set();
+      out.lyrics = out.lyrics
+        .filter((l) => l.type === useType)
+        .sort((a, b) => a.tick - b.tick)
+        .filter((l) => {
+          const t = l.text.replace(/[\r\n]/g, "");
+          if (!t.replace(/[\\\/\s-]/g, "")) return false; // only line-break marks / spaces
+          const k = l.tick + "|" + t.trim().toLowerCase();
+          if (seen.has(k)) return false;
+          seen.add(k);
+          return true;
+        });
+    }
     // Format 0 / single-track files: split by channel so tune and accompaniment can be told apart
     const expanded = [];
     out.tracks.forEach((tr, i) => {
@@ -538,9 +560,22 @@
   // Best guess at which track is the tune: not drums, plenty of notes, mostly one note at a time, higher pitch.
   function guessMelodyTrack(mid) {
     let best = -1, bestScore = -Infinity;
+    const lyricTicks = mid.lyrics.map((l) => l.tick);
     mid.tracks.forEach((t, i) => {
       if (t.drums || t.notes.length < 6) return;
-      const score = t.avgPitch * 1.0 - t.poly * 40 + Math.min(t.notes.length, 200) * 0.05 + (/melod|vocal|voice|lead|tune|sing|right/i.test(t.name) ? 25 : 0) - (/bass|chord|pad|left|accomp|string/i.test(t.name) ? 20 : 0);
+      let lyricFit = 0;
+      if (lyricTicks.length >= 8) {
+        // the sung tune starts a note on (almost) every word
+        const tol = Math.max(2, Math.round(mid.ppq / 32));
+        const starts = t.notes.map((n) => n.start);
+        let hit = 0, k = 0;
+        lyricTicks.forEach((lt) => {
+          while (k < starts.length && starts[k] < lt - tol) k++;
+          if (k < starts.length && Math.abs(starts[k] - lt) <= tol) hit++;
+        });
+        lyricFit = hit / lyricTicks.length;
+      }
+      const score = lyricFit * 120 + t.avgPitch * 1.0 - t.poly * 40 + Math.min(t.notes.length, 200) * 0.05 + (/melod|vocal|voice|lead|tune|sing|right/i.test(t.name) ? 25 : 0) - (/bass|chord|pad|left|accomp|string/i.test(t.name) ? 20 : 0);
       if (score > bestScore) { bestScore = score; best = i; }
     });
     return best;
@@ -642,6 +677,17 @@
     const all = [];
     mid.tracks.forEach((t) => { if (!t.drums) t.notes.forEach((n) => all.push({ midi: n.midi, dur: n.dur })); });
     const key = detectKey(all);
+    // If the file has a key signature that agrees (same scale), trust its name for Sa.
+    if (mid.keySigs.length) {
+      const ks = mid.keySigs[0];
+      const majorPc = mod12(ks.sf * 7);
+      const minorPc = mod12(majorPc + 9);
+      if (key.pc === majorPc || key.pc === minorPc) {
+        const minor = ks.minor || key.pc === minorPc && key.minor;
+        key.pc = minor ? minorPc : majorPc;
+        key.minor = minor;
+      }
+    }
     const keyPc = key.pc;
     // Place the tune near the middle octave relative to Sa
     const avg = mel.reduce((a, n) => a + n.midi, 0) / mel.length;
@@ -679,15 +725,30 @@
 
     // 4) Lyrics embedded in the file (karaoke / lyric events), matched to the nearest tune note
     const lyricByNote = new Map();
-    const lyr = mid.lyrics.filter((l) => l.type === 0x05).length ? mid.lyrics.filter((l) => l.type === 0x05) : mid.lyrics;
-    lyr.forEach((l) => {
+    let ni = 0;
+    mid.lyrics.forEach((l) => {
       const tb = l.tick / ppq - firstBar;
-      let bestN = null, bd = 1e9;
-      mel.forEach((n) => { const dd = Math.abs(n.start - tb); if (dd < bd) { bd = dd; bestN = n; } });
-      if (bestN && bd <= 0.75) {
-        const clean = l.text.replace(/[\r\n\\\/]+/g, " ").trim();
-        if (clean) lyricByNote.set(bestN, (lyricByNote.get(bestN) || "") + clean);
+      // next note that starts at (or just before) this word and doesn't have a word yet
+      while (ni < mel.length && (mel[ni].start < tb - 0.3 || lyricByNote.has(mel[ni]))) ni++;
+      const n = mel[ni];
+      const raw = l.text.replace(/[\r\n\\\/]+/g, " ");
+      if (!n || n.start - tb > 2) {
+        // no tune note near this word: add it to the previous word instead of losing it
+        const prevN = mel[ni - 1];
+        if (prevN && lyricByNote.has(prevN) && tb - prevN.start < 2) lyricByNote.get(prevN).raw += raw;
+        return;
       }
+      lyricByNote.set(n, { raw });
+      ni++;
+    });
+    // A syllable that doesn't end with a space continues into the next one (e.g. "lo" + "ving")
+    const lyricNotes = mel.filter((n) => lyricByNote.has(n));
+    lyricNotes.forEach((n, i) => {
+      const cur = lyricByNote.get(n);
+      const next = lyricNotes[i + 1] && lyricByNote.get(lyricNotes[i + 1]);
+      let word = cur.raw.trim().replace(/\s+/g, " ").replace(/^-+/, "");
+      const joins = next && !/\s$/.test(cur.raw) && !/^\s/.test(next.raw) && /[a-z\u0900-\u097F]$/i.test(word);
+      cur.text = word.split(" ").join("-") + (joins && !word.endsWith("-") ? "-" : "");
     });
 
     // 5) Build a timeline of pieces cut at bar lines and chord changes (ties keep long notes sounding)
@@ -735,7 +796,10 @@
       let any = false;
       pieces.filter((pc) => pc.start >= ls - 1e-6 && pc.start < ls + lineLen - 1e-6).forEach((pc) => {
         while (ci < chordChanges.length && chordChanges[ci].t <= pc.start + 1e-6) {
-          if (Math.abs(chordChanges[ci].t - pc.start) < 1e-6 || chordChanges[ci].t < pc.start) toks.push(`[${SHARP_NAMES[chordChanges[ci].chord.pc].replace("A#", "Bb").replace("D#", "Eb").replace("G#", "Ab")}${chordChanges[ci].chord.quality}]`);
+          if (Math.abs(chordChanges[ci].t - pc.start) < 1e-6 || chordChanges[ci].t < pc.start) {
+            const ch = chordChanges[ci].chord;
+            toks.push(`[${SARGAM_NAMES[mod12(ch.pc - keyPc)]}${ch.quality}]`);
+          }
           ci++;
         }
         const dur = fmtBeats(pc.end - pc.start);
@@ -746,7 +810,7 @@
           toks.push((pc.tie ? "+" : "") + tok + dur);
           if (!pc.tie) {
             const w = lyricByNote.get(pc.note);
-            words.push(w ? w.replace(/\s+/g, "-").replace(/^-|-$/g, "") || "_" : "_");
+            words.push(w && w.text ? w.text : "_");
           }
         }
         if (Math.abs(((pc.end) % beatsPerBar)) < 1e-6 && pc.end < ls + lineLen - 1e-6) toks.push("|");
