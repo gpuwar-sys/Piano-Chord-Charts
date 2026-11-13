@@ -25,6 +25,10 @@ The app is then at https://gpuwar-sys.github.io/Piano-Chord-Charts/
   The app makes the chart in both systems, can rewrite your text from one system to the other, and saves it in the browser.
 - **Key (where Sa sits)**, speed, count-in, beat click, repeat, tap-a-note to hear it, tap-a-chord to hear it.
 - **On-screen keyboard** lights up the tune note (orange) and chord notes (purple).
+- **Import a MIDI file** (⬆ button): the app finds the tune track, the key (where Sa is) and tempo,
+  works out beginner chords bar by bar (from the accompaniment if the file has one, otherwise from the tune),
+  picks up any words stored in the file, and writes the chart in Sa Re Ga and C D E. Everything happens in the
+  browser; the file is not uploaded anywhere.
 - **MIDI download** for any song in any key/tempo (works when opened from your computer).
 
 ## Files

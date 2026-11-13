@@ -19,7 +19,10 @@
           <p class="tag">Sa Re Ga <span aria-hidden="true">·</span> C D E <span aria-hidden="true">·</span> play along</p>
         </div>
       </div>
-      <button type="button" class="btn ghost" id="open-editor">＋ Add a song</button>
+      <div class="head-btns">
+        <button type="button" class="btn primary" id="open-import">⬆ Import MIDI file</button>
+        <button type="button" class="btn ghost" id="open-editor">＋ Type a song</button>
+      </div>
     </header>
 
     <!-- STEP 1: find a song -->
@@ -32,8 +35,9 @@
       <div class="cards" id="cards" role="list"></div>
       <div class="notfound" id="notfound" hidden>
         <p><strong id="nf-title"></strong> isn’t in the song list yet.</p>
-        <p class="muted">You can add it: type its notes (Sa Re Ga or C D E), chords and words, and the app will make the chart in both systems.</p>
-        <button type="button" class="btn primary" id="nf-add">Add this song</button>
+        <p class="muted">Have a MIDI file of it? Import it and the app will find the tune, work out the chords, and make the chart in Sa Re Ga and C D E.</p>
+        <button type="button" class="btn primary" id="nf-import">⬆ Import a MIDI file</button>
+        <button type="button" class="btn ghost" id="nf-add">Type the notes myself</button>
       </div>
     </section>
 
@@ -125,7 +129,21 @@
       </div>
       <div class="ed-grid">
         <div class="ed-left">
-          <label class="ed-label" for="ed-text">Type or paste the song here</label>
+          <div class="import-box">
+            <div class="import-row">
+              <label class="btn primary file-btn">⬆ Choose a MIDI file (.mid)
+                <input type="file" id="midi-file" accept=".mid,.midi,.kar,audio/midi,audio/x-midi" hidden>
+              </label>
+              <span class="muted" id="midi-name">The app reads the file on your computer — nothing is uploaded anywhere.</span>
+            </div>
+            <div class="import-row" id="import-opts" hidden>
+              <label>Tune is in <select id="midi-track"></select></label>
+              <label>Change chords <select id="midi-chords"><option value="bar">once per bar (easier)</option><option value="half">twice per bar</option></select></label>
+              <label>Bars per line <select id="midi-bars"><option>1</option><option selected>2</option><option>4</option></select></label>
+            </div>
+            <p class="import-info" id="import-info" hidden></p>
+          </div>
+          <label class="ed-label" for="ed-text">Song text (you can fix notes or add words here)</label>
           <textarea id="ed-text" spellcheck="false" rows="16"></textarea>
           <div class="ed-actions">
             <button type="button" class="btn primary" id="ed-save">Save &amp; open</button>

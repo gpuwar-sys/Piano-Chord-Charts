@@ -153,7 +153,7 @@
           const am = `<span class="am">${americanHTML(midi)}</span>`;
           nt = state.notation === "indian" ? ind : state.notation === "american" ? am : ind + am;
         }
-        html.push(`<button type="button" class="cell ${it.rest ? "rest" : ""} ${it.barAfter ? "bar" : ""}" style="min-width:${w}px"
+        html.push(`<button type="button" class="cell ${it.rest ? "rest" : ""} ${it.tie ? "tie" : ""} ${it.barAfter ? "bar" : ""}" style="min-width:${w}px"
           data-line="${li}" data-i="${ii}" ${interactive ? "" : 'tabindex="-1"'}
           aria-label="${it.rest ? "rest" : esc((it.lyric || "") + " " + M.sargamText(60 + it.semi + state.keyPc, state.keyPc) + " " + M.westernName(60 + it.semi + state.keyPc, state.keyPc))}">
           <span class="chd">${chd}</span><span class="nt">${nt}</span>
@@ -310,11 +310,11 @@
   function buildEvents(fromBeat) {
     const song = state.current.parsed;
     const ev = [];
-    if (state.melody) song.lines.forEach((ln) => ln.items.forEach((it) => {
-      if (it.rest || it.start + it.beats <= fromBeat + 1e-6) return;
+    if (state.melody) M.melodyNotes(song).forEach((it) => {
+      if (it.start + it.beats <= fromBeat + 1e-6) return;
       const st = Math.max(it.start, fromBeat);
       ev.push({ beat: st, dur: it.start + it.beats - st, midi: 60 + it.semi + state.keyPc, vel: 1, type: "mel" });
-    }));
+    });
     if (state.chords) M.accompaniment(song, state.keyPc).forEach((e) => {
       if (e.start + e.beats <= fromBeat + 1e-6) return;
       const st = Math.max(e.start, fromBeat);
@@ -441,6 +441,10 @@ and here is line num-ber two
 `;
   function openEditor(text, id) {
     editingId = id || null;
+    midiData = null;
+    $("import-opts").hidden = true;
+    $("import-info").hidden = true;
+    $("midi-name").textContent = "The app reads the file on your computer — nothing is uploaded anywhere.";
     $("ed-text").value = text || TEMPLATE;
     $("ed-delete").hidden = !editingId;
     $("ed-h").textContent = editingId ? "Edit your song" : "Add a song";
@@ -483,6 +487,55 @@ and here is line num-ber two
     updatePreview();
   }
 
+
+  // ---------- MIDI import ----------
+  let midiData = null, midiTitle = "";
+  function midiTitleFrom(name) {
+    return name.replace(/\.(mid|midi|kar)$/i, "").replace(/[_]+/g, " ").replace(/\s+/g, " ").trim() || "Imported song";
+  }
+  async function onMidiFile(file) {
+    if (!file) return;
+    $("midi-name").textContent = file.name;
+    try {
+      const buf = new Uint8Array(await file.arrayBuffer());
+      midiData = M.readMidi(buf);
+      midiTitle = midiTitleFrom(file.name);
+      const guess = M.guessMelodyTrack(midiData);
+      if (guess < 0) throw new Error("I couldn't find a tune in this file (it may be drums only).");
+      $("midi-track").innerHTML = midiData.tracks.map((t, i) =>
+        `<option value="${i}" ${t.drums ? "disabled" : ""}>${esc(t.name)} — ${t.notes.length} notes${t.drums ? " (drums)" : ""}${i === guess ? " ★ best guess" : ""}</option>`).join("");
+      $("midi-track").value = String(guess);
+      $("import-opts").hidden = false;
+      buildFromMidi();
+    } catch (e) {
+      midiData = null;
+      $("import-opts").hidden = true;
+      $("import-info").hidden = false;
+      $("import-info").textContent = "Couldn't read that file: " + e.message;
+    }
+  }
+  function buildFromMidi() {
+    if (!midiData) return;
+    try {
+      const r = M.midiToSongText(midiData, {
+        title: midiTitle,
+        melodyTrack: parseInt($("midi-track").value, 10),
+        chordEvery: $("midi-chords").value,
+        barsPerLine: parseInt($("midi-bars").value, 10),
+      });
+      $("ed-text").value = r.text;
+      const keyName = M.westernName(60 + r.key.pc, r.key.pc);
+      $("import-info").hidden = false;
+      $("import-info").textContent = `Found ${r.notes} tune notes and ${r.chords} chord changes. Sa = ${keyName} (${r.key.minor ? "minor" : "major"} key), ${r.tempo} BPM.` +
+        (r.lyrics ? ` Words found in the file: ${r.lyrics}.` : " No words in the file — you can type them under each line.") +
+        " Press Play after saving; if the tune sounds wrong, try another track in “Tune is in”.";
+      updatePreview();
+    } catch (e) {
+      $("import-info").hidden = false;
+      $("import-info").textContent = e.message;
+    }
+  }
+
   let toastTimer = 0;
   function toast(msg) {
     const t = $("toast"); t.textContent = msg; t.hidden = false;
@@ -510,6 +563,11 @@ and here is line num-ber two
     });
     $("nf-add").addEventListener("click", () => openEditor(TEMPLATE.replace("My new song", $("search").value.trim() || "My new song")));
     $("open-editor").addEventListener("click", () => openEditor());
+    const startImport = () => { openEditor(" "); $("ed-text").value = ""; updatePreview(); $("midi-file").click(); };
+    $("open-import").addEventListener("click", startImport);
+    $("nf-import").addEventListener("click", startImport);
+    $("midi-file").addEventListener("change", (e) => { onMidiFile(e.target.files[0]); e.target.value = ""; });
+    ["midi-track", "midi-chords", "midi-bars"].forEach((id) => $(id).addEventListener("change", buildFromMidi));
 
     $("notation").addEventListener("click", (e) => {
       const b = e.target.closest("button"); if (!b) return;

@@ -185,3 +185,13 @@ code { background: #f3ece1; padding: 1px 5px; border-radius: 5px; font-size: 13p
   .song-head h2 { font-size: 24px; }
   .cell .nt { font-size: 19px; }
 }
+
+.head-btns { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.import-box { background: var(--teal-soft); border-radius: 14px; padding: 12px; margin-bottom: 12px; }
+.import-row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.import-row + .import-row { margin-top: 10px; }
+.import-row label { font-weight: 800; font-size: 14px; display: inline-flex; gap: 6px; align-items: center; }
+.file-btn { display: inline-block; }
+.import-info { margin: 10px 0 0; font-weight: 700; color: #0f5757; font-size: 14px; }
+.cell.tie .nt { opacity: .45; }
+.cell.tie .nt::before { content: "⌒"; font-size: 12px; line-height: 1; }

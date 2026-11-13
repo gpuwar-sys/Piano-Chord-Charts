@@ -132,6 +132,13 @@
   }
 
   function parseNoteToken(tok) {
+    if (tok[0] === "+" && tok.length > 1) {
+      // "+Pa-" = keep holding the previous note (a tie): no new key press
+      const n = parseNoteToken(tok.slice(1));
+      if (!n || n.rest) return null;
+      n.tie = true;
+      return n;
+    }
     if (tok[0] === "~") {
       const mm = /^~([-_.]*)(?:\*(\d*\.?\d+))?$/.exec(tok);
       if (!mm) return null;
@@ -290,7 +297,7 @@
     const syl = splitLyrics(text);
     let i = 0;
     ln.items.forEach((it) => {
-      if (it.rest) return;
+      if (it.rest || it.tie) return;
       if (i < syl.length) it.lyric = syl[i++];
     });
     if (i < syl.length) ln.items.length && (ln.items[ln.items.length - 1].lyric += " " + syl.slice(i).join(" "));
@@ -312,7 +319,7 @@
       ln.items.forEach((it) => {
         if (it.chord) notes.push(`[${system === "sargam" ? chordSargam(it.chord).replace(" ", "") : chordWestern(it.chord, keyPc)}]`);
         notes.push(tokenText(it, system));
-        if (!it.rest) words.push(it.lyric ? it.lyric.replace(/-$/, "") + (it.lyric.endsWith("-") ? "-" : " ") : "_ ");
+        if (!it.rest && !it.tie) words.push(it.lyric ? it.lyric.replace(/-$/, "") + (it.lyric.endsWith("-") ? "-" : " ") : "_ ");
         if (it.barAfter) notes.push("|");
       });
       lines.push(notes.join(" "));
@@ -332,7 +339,7 @@
     if (it.rest) return "~" + durText(it.beats);
     const midi = 60 + it.semi;
     const name = system === "sargam" ? sargamText(midi, 0) : westernWithOctave(midi);
-    return name + durText(it.beats);
+    return (it.tie ? "+" : "") + name + durText(it.beats);
   }
 
   function westernWithOctave(midi) {
@@ -379,14 +386,13 @@
 
     const mel = [{ tick: 0, order: 0, bytes: [0xff, 0x03, 6, ...str("Melody")] }, { tick: 0, order: 0, bytes: [0xc0, 0] }];
     if (o.melody) {
-      song.lines.forEach((ln) => ln.items.forEach((it) => {
-        if (it.rest) return;
-        const n = 60 + it.semi + o.keyPc;
-        const on = tick(it.start);
-        const off = tick(it.start + it.beats) - 10;
+      melodyNotes(song).forEach((e) => {
+        const n = 60 + e.semi + o.keyPc;
+        const on = tick(e.start);
+        const off = tick(e.start + e.beats) - 10;
         mel.push({ tick: on, order: 2, bytes: [0x90, n, 100] });
         mel.push({ tick: Math.max(on + 1, off), order: 1, bytes: [0x80, n, 0] });
-      }));
+      });
     }
     tracks.push(trackChunk(mel));
 
@@ -427,10 +433,324 @@
     return out;
   }
 
+
+  // Melody as sounding notes: tied items ("+Pa") extend the previous note instead of re-striking it.
+  function melodyNotes(song) {
+    const out = [];
+    let last = null;
+    song.lines.forEach((ln) => ln.items.forEach((it) => {
+      if (it.rest) { last = null; return; }
+      if (it.tie && last && last.semi === it.semi && Math.abs(last.start + last.beats - it.start) < 1e-6) {
+        last.beats += it.beats;
+        last.items.push(it);
+        return;
+      }
+      last = { semi: it.semi, start: it.start, beats: it.beats, items: [it] };
+      out.push(last);
+    }));
+    return out;
+  }
+
+  // ---------- MIDI file reader ----------
+  function readMidi(buf) {
+    const d = buf instanceof Uint8Array ? buf : new Uint8Array(buf);
+    let p = 0;
+    const u8 = () => d[p++];
+    const u16 = () => (d[p++] << 8) | d[p++];
+    const u32r = () => ((d[p++] << 24) >>> 0) + (d[p++] << 16) + (d[p++] << 8) + d[p++];
+    const txt = (n) => { let s = ""; for (let i = 0; i < n; i++) s += String.fromCharCode(d[p + i]); p += n; return s; };
+    const vlqr = () => { let n = 0, b; do { b = d[p++]; n = (n << 7) | (b & 0x7f); } while (b & 0x80 && p < d.length); return n; };
+    if (txt(4) !== "MThd") throw new Error("This doesn't look like a MIDI file (.mid).");
+    const hlen = u32r();
+    const format = u16(), ntrk = u16(), division = u16();
+    p += hlen - 6;
+    if (division & 0x8000) throw new Error("This MIDI file uses SMPTE timing, which isn't supported yet.");
+    const ppq = division;
+    const out = { format, ppq, tempos: [], timeSigs: [], keySigs: [], lyrics: [], tracks: [] };
+    for (let t = 0; t < ntrk && p < d.length; t++) {
+      const id = txt(4);
+      const len = u32r();
+      const end = p + len;
+      if (id !== "MTrk") { p = end; continue; }
+      const tr = { name: "", notes: [], channels: new Set(), program: null };
+      const open = new Map();
+      let tick = 0, status = 0;
+      while (p < end) {
+        tick += vlqr();
+        let b = d[p];
+        if (b & 0x80) { status = b; p++; } else if (!status) { p++; continue; }
+        const type = status & 0xf0, ch = status & 0x0f;
+        if (status === 0xff) {
+          const mt = u8(); const ml = vlqr(); const start = p;
+          if (mt === 0x03) tr.name = txt(ml);
+          else if (mt === 0x51) out.tempos.push({ tick, us: (d[p] << 16) | (d[p + 1] << 8) | d[p + 2] });
+          else if (mt === 0x58) out.timeSigs.push({ tick, num: d[p], den: Math.pow(2, d[p + 1]) });
+          else if (mt === 0x59) out.keySigs.push({ tick, sf: (d[p] << 24) >> 24, minor: d[p + 1] === 1 });
+          else if (mt === 0x05 || (mt === 0x01 && ml < 40)) {
+            const s = txt(ml);
+            if (mt === 0x05 || !/^@|^\s*$/.test(s)) out.lyrics.push({ tick, text: s, type: mt });
+          }
+          p = start + ml;
+          status = 0; // running status is cancelled by meta events
+          continue;
+        }
+        if (status === 0xf0 || status === 0xf7) { const l = vlqr(); p += l; status = 0; continue; }
+        if (type === 0x80 || type === 0x90) {
+          const note = u8(), vel = u8();
+          const key = ch * 128 + note;
+          if (type === 0x90 && vel > 0) {
+            if (open.has(key)) { const o = open.get(key); o.dur = tick - o.start; tr.notes.push(o); }
+            open.set(key, { midi: note, start: tick, dur: 0, vel, ch });
+            tr.channels.add(ch);
+          } else if (open.has(key)) {
+            const o = open.get(key); o.dur = tick - o.start; open.delete(key);
+            if (o.dur > 0) tr.notes.push(o);
+          }
+        } else if (type === 0xa0 || type === 0xb0 || type === 0xe0) p += 2;
+        else if (type === 0xc0) { const prog = u8(); if (tr.program == null) tr.program = prog; }
+        else if (type === 0xd0) p += 1;
+        else p++;
+      }
+      p = end;
+      tr.notes.sort((a, b) => a.start - b.start || b.midi - a.midi);
+      out.tracks.push(tr);
+    }
+    // Format 0 / single-track files: split by channel so tune and accompaniment can be told apart
+    const expanded = [];
+    out.tracks.forEach((tr, i) => {
+      if (tr.channels.size > 1) {
+        [...tr.channels].sort((a, b) => a - b).forEach((ch) => {
+          expanded.push({ name: (tr.name || `Track ${i + 1}`) + ` · channel ${ch + 1}`, notes: tr.notes.filter((n) => n.ch === ch), channels: new Set([ch]) });
+        });
+      } else expanded.push(tr);
+    });
+    out.tracks = expanded.filter((t) => t.notes.length).map((t, i) => {
+      const drums = t.channels.has(9);
+      const avg = t.notes.reduce((a, n) => a + n.midi, 0) / t.notes.length;
+      // how often notes overlap (chords) — melodies are mostly one note at a time
+      let overlaps = 0;
+      for (let k = 1; k < t.notes.length; k++) if (t.notes[k].start < t.notes[k - 1].start + t.notes[k - 1].dur * 0.5) overlaps++;
+      return { index: i, name: t.name || `Track ${i + 1}`, notes: t.notes, drums, avgPitch: avg, poly: overlaps / t.notes.length };
+    });
+    return out;
+  }
+
+  // Best guess at which track is the tune: not drums, plenty of notes, mostly one note at a time, higher pitch.
+  function guessMelodyTrack(mid) {
+    let best = -1, bestScore = -Infinity;
+    mid.tracks.forEach((t, i) => {
+      if (t.drums || t.notes.length < 6) return;
+      const score = t.avgPitch * 1.0 - t.poly * 40 + Math.min(t.notes.length, 200) * 0.05 + (/melod|vocal|voice|lead|tune|sing|right/i.test(t.name) ? 25 : 0) - (/bass|chord|pad|left|accomp|string/i.test(t.name) ? 20 : 0);
+      if (score > bestScore) { bestScore = score; best = i; }
+    });
+    return best;
+  }
+
+  const MAJOR_PROFILE = [6.35, 2.23, 3.48, 2.33, 4.38, 4.09, 2.52, 5.19, 2.39, 3.66, 2.29, 2.88];
+  const MINOR_PROFILE = [6.33, 2.68, 3.52, 5.38, 2.60, 3.53, 2.54, 4.75, 3.98, 2.69, 3.34, 3.17];
+  function correlate(a, b) {
+    const ma = a.reduce((x, y) => x + y, 0) / 12, mb = b.reduce((x, y) => x + y, 0) / 12;
+    let num = 0, da = 0, db = 0;
+    for (let i = 0; i < 12; i++) { num += (a[i] - ma) * (b[i] - mb); da += (a[i] - ma) ** 2; db += (b[i] - mb) ** 2; }
+    return da && db ? num / Math.sqrt(da * db) : 0;
+  }
+  // Krumhansl–Schmuckler key finding, weighted by note length.
+  function detectKey(notes) {
+    const h = new Array(12).fill(0);
+    notes.forEach((n) => { h[mod12(n.midi)] += n.dur || 1; });
+    let best = { pc: 0, minor: false, r: -2 };
+    for (let k = 0; k < 12; k++) {
+      const rot = h.slice(k).concat(h.slice(0, k));
+      const rM = correlate(rot, MAJOR_PROFILE), rm = correlate(rot, MINOR_PROFILE);
+      if (rM > best.r) best = { pc: k, minor: false, r: rM };
+      if (rm > best.r) best = { pc: k, minor: true, r: rm };
+    }
+    return best;
+  }
+
+  // Chord templates a beginner can play: major, minor, plus dominant 7th.
+  const CHORD_CHOICES = [{ q: "", w: 1 }, { q: "m", w: 1 }, { q: "7", w: 0.9 }];
+  function pickChord(hist, bassPc, keyPc, minorKey, prev) {
+    const total = hist.reduce((a, b) => a + b, 0);
+    if (total <= 0) return prev;
+    // notes that belong to the key (natural minor uses the relative major's notes, plus the raised 7th)
+    const scale = minorKey ? [0, 2, 3, 5, 7, 8, 10, 11] : [0, 2, 4, 5, 7, 9, 11];
+    const inKey = new Set(scale.map((x) => mod12(x + keyPc)));
+    let best = null, bestScore = -Infinity;
+    for (let root = 0; root < 12; root++) {
+      for (const c of CHORD_CHOICES) {
+        const tones = QUALITIES[c.q].tones.map((x) => mod12(x + root));
+        let inW = 0;
+        tones.forEach((pc) => { inW += hist[pc]; });
+        const outW = total - inW;
+        let score = (inW - outW * 0.9) / total;
+        if (hist[root] > 0) score += 0.12 * (hist[root] / total) * 3;
+        if (bassPc === root) score += 0.18;
+        const diatonic = tones.every((pc) => inKey.has(pc));
+        if (diatonic) score += 0.15;
+        if (c.q === "7") score -= (hist[mod12(root + 10)] / total) < 0.08 ? 0.3 : 0.02;
+        if (root === keyPc) score += 0.05;
+        if (prev && prev.pc === root && prev.quality === c.q) score += 0.04;
+        score *= c.w;
+        if (score > bestScore) { bestScore = score; best = { pc: root, quality: c.q }; }
+      }
+    }
+    return best;
+  }
+
+  // Turn a read MIDI file into song text this app understands.
+  // opts: {title, melodyTrack, chordEvery: 'bar'|'half', barsPerLine, grid}
+  function midiToSongText(mid, opts) {
+    const o = Object.assign({ title: "Imported song", melodyTrack: guessMelodyTrack(mid), chordEvery: "bar", barsPerLine: 2, grid: 0.25 }, opts || {});
+    const mt = mid.tracks[o.melodyTrack];
+    if (!mt) throw new Error("I couldn't find a tune in this file.");
+    const ppq = mid.ppq;
+    const ts = mid.timeSigs[0] || { num: 4, den: 4 };
+    const beatsPerBar = (ts.num * 4) / ts.den;
+    const tempo = mid.tempos.length ? Math.round(60000000 / mid.tempos[0].us) : 100;
+    const g = o.grid;
+    const q = (ticks) => Math.round(ticks / ppq / g) * g;
+
+    // 1) Tune: one note at a time (the highest note wins when notes start together)
+    const raw = mt.notes.map((n) => ({ midi: n.midi, start: q(n.start), end: q(n.start + n.dur) }));
+    const byStart = new Map();
+    raw.forEach((n) => { const e = byStart.get(n.start); if (!e || n.midi > e.midi) byStart.set(n.start, n); });
+    const mel = [...byStart.values()].sort((a, b) => a.start - b.start);
+    for (let i = 0; i < mel.length; i++) {
+      const next = mel[i + 1];
+      if (next && mel[i].end > next.start) mel[i].end = next.start;
+      if (mel[i].end - mel[i].start < g) mel[i].end = mel[i].start + g;
+    }
+    if (!mel.length) throw new Error("The tune track has no notes.");
+    // Start the song at the bar where the tune begins
+    const firstBar = Math.floor(mel[0].start / beatsPerBar) * beatsPerBar;
+    mel.forEach((n) => { n.start -= firstBar; n.end -= firstBar; });
+
+    // 2) Key: from every pitched note in the file
+    const all = [];
+    mid.tracks.forEach((t) => { if (!t.drums) t.notes.forEach((n) => all.push({ midi: n.midi, dur: n.dur })); });
+    const key = detectKey(all);
+    const keyPc = key.pc;
+    // Place the tune near the middle octave relative to Sa
+    const avg = mel.reduce((a, n) => a + n.midi, 0) / mel.length;
+    const saMidi = 60 + keyPc;
+    const octShift = Math.round((avg - (saMidi + 5)) / 12) * 12; // keep tune mostly between ,Pa and Pa'
+    const semiOf = (m) => m - saMidi - octShift;
+
+    // 3) Chords: from accompaniment tracks if there are any, otherwise from the tune itself
+    const accTracks = mid.tracks.filter((t, i) => i !== o.melodyTrack && !t.drums);
+    const harmonyNotes = (accTracks.length ? accTracks.flatMap((t) => t.notes) : mt.notes)
+      .map((n) => ({ midi: n.midi, start: n.start / ppq - firstBar, end: (n.start + n.dur) / ppq - firstBar }));
+    const span = o.chordEvery === "half" ? beatsPerBar / 2 : beatsPerBar;
+    const songEnd = Math.ceil(Math.max(...mel.map((n) => n.end)) / beatsPerBar) * beatsPerBar;
+    const chordAt = [];
+    let prev = null;
+    for (let t = 0; t < songEnd; t += span) {
+      const hist = new Array(12).fill(0);
+      let lowest = 999;
+      harmonyNotes.forEach((n) => {
+        const ov = Math.min(n.end, t + span) - Math.max(n.start, t);
+        if (ov > 0) {
+          const w = ov * (n.start >= t - 0.01 && n.start < t + 0.25 ? 1.5 : 1);
+          hist[mod12(n.midi)] += w;
+          if (n.midi < lowest) lowest = n.midi;
+        }
+      });
+      // the tune counts too, a little
+      mel.forEach((n) => { const ov = Math.min(n.end, t + span) - Math.max(n.start, t); if (ov > 0) hist[mod12(n.midi)] += ov * (accTracks.length ? 0.35 : 1); });
+      const c = pickChord(hist, lowest < 999 ? mod12(lowest) : null, keyPc, key.minor, prev);
+      chordAt.push({ t, chord: c });
+      prev = c;
+    }
+    // drop repeats
+    const chordChanges = chordAt.filter((c, i) => c.chord && (i === 0 || !chordAt[i - 1].chord || chordAt[i - 1].chord.pc !== c.chord.pc || chordAt[i - 1].chord.quality !== c.chord.quality));
+
+    // 4) Lyrics embedded in the file (karaoke / lyric events), matched to the nearest tune note
+    const lyricByNote = new Map();
+    const lyr = mid.lyrics.filter((l) => l.type === 0x05).length ? mid.lyrics.filter((l) => l.type === 0x05) : mid.lyrics;
+    lyr.forEach((l) => {
+      const tb = l.tick / ppq - firstBar;
+      let bestN = null, bd = 1e9;
+      mel.forEach((n) => { const dd = Math.abs(n.start - tb); if (dd < bd) { bd = dd; bestN = n; } });
+      if (bestN && bd <= 0.75) {
+        const clean = l.text.replace(/[\r\n\\\/]+/g, " ").trim();
+        if (clean) lyricByNote.set(bestN, (lyricByNote.get(bestN) || "") + clean);
+      }
+    });
+
+    // 5) Build a timeline of pieces cut at bar lines and chord changes (ties keep long notes sounding)
+    const cuts = new Set();
+    for (let b = 0; b <= songEnd; b += beatsPerBar) cuts.add(b);
+    chordChanges.forEach((c) => cuts.add(c.t));
+    const cutList = [...cuts].sort((a, b) => a - b);
+    const pieces = [];
+    let cursor = 0;
+    const pushSpan = (start, end, note) => {
+      let s0 = start;
+      for (const c of cutList) {
+        if (c > s0 + 1e-6 && c < end - 1e-6) { pieces.push({ start: s0, end: c, note, tie: s0 !== start }); s0 = c; }
+      }
+      pieces.push({ start: s0, end, note, tie: s0 !== start });
+    };
+    mel.forEach((n) => {
+      if (n.start > cursor + 1e-6) pushSpan(cursor, n.start, null);
+      pushSpan(n.start, n.end, n);
+      cursor = n.end;
+    });
+    if (cursor < songEnd - 1e-6) pushSpan(cursor, songEnd, null);
+
+    // 6) Write text, a few bars per line
+    const fmtBeats = (b) => {
+      const table = { 1: "", 2: "-", 3: "--", 4: "---", 0.5: "_", 0.25: "__", 1.5: ".", 0.75: "_." };
+      const r = Math.round(b * 1000) / 1000;
+      return Object.prototype.hasOwnProperty.call(table, r) ? table[r] : `*${r}`;
+    };
+    const keyName = SHARP_NAMES[keyPc] === "A#" ? "Bb" : SHARP_NAMES[keyPc] === "D#" ? "Eb" : SHARP_NAMES[keyPc] === "G#" ? "Ab" : SHARP_NAMES[keyPc];
+    const lines = [
+      `Title: ${o.title}`,
+      `By: Imported from a MIDI file — chords worked out automatically`,
+      `Key: ${keyName}`,
+      `Tempo: ${Math.max(30, Math.min(260, tempo))}`,
+      `Time: ${ts.num}/${ts.den}`,
+      `# Sa = ${keyName}. The song sounds ${key.minor ? "minor (sad / serious)" : "major (bright / happy)"}.`,
+      "",
+    ];
+    const lineLen = beatsPerBar * o.barsPerLine;
+    let ci = 0;
+    for (let ls = 0; ls < songEnd; ls += lineLen) {
+      const toks = [];
+      const words = [];
+      let any = false;
+      pieces.filter((pc) => pc.start >= ls - 1e-6 && pc.start < ls + lineLen - 1e-6).forEach((pc) => {
+        while (ci < chordChanges.length && chordChanges[ci].t <= pc.start + 1e-6) {
+          if (Math.abs(chordChanges[ci].t - pc.start) < 1e-6 || chordChanges[ci].t < pc.start) toks.push(`[${SHARP_NAMES[chordChanges[ci].chord.pc].replace("A#", "Bb").replace("D#", "Eb").replace("G#", "Ab")}${chordChanges[ci].chord.quality}]`);
+          ci++;
+        }
+        const dur = fmtBeats(pc.end - pc.start);
+        if (!pc.note) { toks.push("~" + dur); }
+        else {
+          any = true;
+          const tok = sargamText(60 + semiOf(pc.note.midi), 0);
+          toks.push((pc.tie ? "+" : "") + tok + dur);
+          if (!pc.tie) {
+            const w = lyricByNote.get(pc.note);
+            words.push(w ? w.replace(/\s+/g, "-").replace(/^-|-$/g, "") || "_" : "_");
+          }
+        }
+        if (Math.abs(((pc.end) % beatsPerBar)) < 1e-6 && pc.end < ls + lineLen - 1e-6) toks.push("|");
+      });
+      if (!toks.length) continue;
+      lines.push(toks.join(" "));
+      if (any && words.some((w) => w !== "_")) lines.push(words.join(" "));
+      lines.push("");
+    }
+    return { text: lines.join("\n"), key, tempo, beatsPerBar, melodyTrack: o.melodyTrack, notes: mel.length, chords: chordChanges.length, lyrics: lyricByNote.size };
+  }
+
   const Music = {
     KEYS, SARGAM_NAMES, mod12, westernName, sargamOf, sargamText, parseChord, chordWestern,
     chordSargam, chordWords, voiceChord, parseNoteToken, parseSongText, songToText, songToMidi,
-    accompaniment, westernWithOctave, isNotesLine,
+    accompaniment, westernWithOctave, isNotesLine, melodyNotes, readMidi, guessMelodyTrack, detectKey, midiToSongText,
   };
   if (typeof module !== "undefined" && module.exports) module.exports = Music;
   else root.Music = Music;
