@@ -1,0 +1,28 @@
+# Publishes the V2 web app (the v2/ folder) to GitHub Pages on every push to the v2 branch.
+# One-time setup: repo Settings → Pages → Source: "GitHub Actions".
+name: Deploy V2 web app to GitHub Pages
+on:
+  push:
+    branches: [v2]
+  workflow_dispatch:
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+concurrency:
+  group: pages
+  cancel-in-progress: true
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: v2
+      - id: deployment
+        uses: actions/deploy-pages@v4

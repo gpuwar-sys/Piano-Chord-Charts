@@ -1,6 +1,7 @@
 # Piano chord charts & scripts
 
-Personal use – chord charts and simple tools for learning songs on keyboard. Sandbox web app - http://127.0.0.1:8765/
+Personal use – chord charts and simple tools for learning songs on keyboard. Sandbox web app Demo - http://127.0.0.1:8765/ 
+v2 app - https://gpuwar-sys.github.io/Piano-Chord-Charts/
 
 ## What’s in here
 
