@@ -607,7 +607,19 @@
     const ppq = mid.ppq;
     const ts = mid.timeSigs[0] || { num: 4, den: 4 };
     const beatsPerBar = (ts.num * 4) / ts.den;
-    const tempo = mid.tempos.length ? Math.round(60000000 / mid.tempos[0].us) : 100;
+    // Tempo: MIDI files with no tempo mark mean 120 BPM. If the tempo changes, use the one that lasts longest.
+    let tempo = 120;
+    if (mid.tempos.length) {
+      const lastTick = Math.max(...mid.tracks.flatMap((t) => t.notes.map((n) => n.start + n.dur)), 1);
+      const tl = mid.tempos.slice().sort((a, b) => a.tick - b.tick);
+      const dur = new Map();
+      tl.forEach((t, i) => {
+        const end = i + 1 < tl.length ? tl[i + 1].tick : lastTick;
+        const bpm = Math.round(60000000 / t.us);
+        dur.set(bpm, (dur.get(bpm) || 0) + Math.max(0, end - t.tick));
+      });
+      tempo = [...dur.entries()].sort((a, b) => b[1] - a[1])[0][0];
+    }
     const g = o.grid;
     const q = (ticks) => Math.round(ticks / ppq / g) * g;
 
