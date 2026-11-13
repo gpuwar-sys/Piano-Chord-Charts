@@ -33,6 +33,13 @@
         <input id="search" type="search" placeholder="Type a song name… (try “star” or “birthday”)" autocomplete="off" aria-label="Song name">
       </div>
       <div class="cards" id="cards" role="list"></div>
+      <div class="backup">
+        <span class="muted">Your added songs live in this browser only. To move them to another phone or computer:</span>
+        <button type="button" class="btn small ghost" id="backup-save">💾 Save my songs to a file</button>
+        <label class="btn small ghost">📂 Load songs from a file
+          <input type="file" id="backup-load" accept=".json,application/json" hidden>
+        </label>
+      </div>
       <div class="notfound" id="notfound" hidden>
         <p><strong id="nf-title"></strong> isn’t in the song list yet.</p>
         <p class="muted">Have a MIDI file of it? Import it and the app will find the tune, work out the chords, and make the chart in Sa Re Ga and C D E.</p>

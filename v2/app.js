@@ -567,6 +567,52 @@ and here is line num-ber two
     }
   }
 
+
+  // ---------- backup / restore of the user's own songs ----------
+  function saveBackup() {
+    const mine = store.get("cc2.mySongs", []);
+    if (!mine.length) { toast("You haven't added any songs yet."); return; }
+    const data = { app: "chord-charts-v2", version: 1, saved: new Date().toISOString(), songs: mine };
+    const d = new Date();
+    const name = `my-chord-songs-${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}.json`;
+    try {
+      const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 1)], { type: "application/json" }));
+      const a = document.createElement("a");
+      a.href = url; a.download = name;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 4000);
+      toast(`Saved ${mine.length} song(s) as ${name}. Put this file on your other device (Google Drive, email…) and press “Load songs from a file” there.`);
+    } catch (e) {
+      toast("Couldn't save a file here. Open the app from https://gpuwar-sys.github.io/Piano-Chord-Charts/ and try again.");
+    }
+  }
+  async function loadBackup(file) {
+    if (!file) return;
+    try {
+      const data = JSON.parse(await file.text());
+      const incoming = Array.isArray(data) ? data : data.songs;
+      if (!Array.isArray(incoming)) throw new Error("bad file");
+      const mine = store.get("cc2.mySongs", []);
+      const texts = new Set(mine.map((x) => x.text));
+      const ids = new Set(mine.map((x) => x.id));
+      let added = 0, skipped = 0;
+      incoming.forEach((x) => {
+        if (!x || typeof x.text !== "string" || !x.text.trim()) return;
+        if (texts.has(x.text)) { skipped++; return; }
+        let id = typeof x.id === "string" && x.id ? x.id : "my-" + Math.random().toString(36).slice(2, 9);
+        while (ids.has(id)) id = "my-" + Math.random().toString(36).slice(2, 9);
+        mine.push({ id, text: x.text });
+        ids.add(id); texts.add(x.text); added++;
+      });
+      store.set("cc2.mySongs", mine);
+      loadSongs();
+      renderCards($("search").value);
+      toast(added ? `Loaded ${added} song(s)${skipped ? ` (${skipped} you already had)` : ""}. They're in the song list now.` : "Those songs are already here — nothing new to load.");
+    } catch (e) {
+      toast("That file isn't a Chord Charts song backup (it should end in .json).");
+    }
+  }
+
   let toastTimer = 0;
   function toast(msg) {
     const t = $("toast"); t.textContent = msg; t.hidden = false;
@@ -594,6 +640,8 @@ and here is line num-ber two
     });
     $("nf-add").addEventListener("click", () => openEditor(TEMPLATE.replace("My new song", $("search").value.trim() || "My new song")));
     $("open-editor").addEventListener("click", () => openEditor());
+    $("backup-save").addEventListener("click", saveBackup);
+    $("backup-load").addEventListener("change", (e) => { loadBackup(e.target.files[0]); e.target.value = ""; });
     const startImport = () => { openEditor(" "); $("ed-text").value = ""; updatePreview(); $("midi-file").click(); };
     $("open-import").addEventListener("click", startImport);
     $("nf-import").addEventListener("click", startImport);

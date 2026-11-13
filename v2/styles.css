@@ -195,3 +195,6 @@ code { background: #f3ece1; padding: 1px 5px; border-radius: 5px; font-size: 13p
 .import-info { margin: 10px 0 0; font-weight: 700; color: #0f5757; font-size: 14px; }
 .cell.tie .nt { opacity: .45; }
 .cell.tie .nt::before { content: "⌒"; font-size: 12px; line-height: 1; }
+
+.backup { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 12px; font-size: 14px; }
+.backup label.btn { cursor: pointer; }
